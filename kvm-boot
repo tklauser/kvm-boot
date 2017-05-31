@@ -1,0 +1,215 @@
+#!/bin/bash
+# Copyright (C) 2017 Luis R. Rodriguez <mcgrof@kernel.org>
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of copyleft-next (version 0.3.1 or later) as published
+# at http://copyleft-next.org/.
+
+VDE_SOCKET="/var/run/qemu-vde.ctl"
+KERNEL=""
+QEMU=$(which qemu-system-x86_64)
+USE_KERNEL=""
+USE_INITRD=""
+USE_APPEND=""
+
+NEXT_TARGET="/opt/qemu/linux-next.qcow2"
+USE_NEXT_TARGET="-hdb $NEXT_TARGET"
+
+TARGET="/opt/qemu/opensuse-leap-42.2.img"
+#TARGET=/opt/qemu/debian-x86_64.qcow2
+USE_TARGET="-hda $TARGET"
+
+QEMU=$(which qemu-system-x86_64)
+MEM="4096"
+CPUS="4"
+# Only used if you are asking to boot into a specific development kernel
+append=(
+	debug
+	audit=0
+	load_ramdisk=2
+	root=/dev/sda1
+	# WTF
+	# 'stty -F /dev/ttyS0 -a' reports one thing, yet 'dmesg| grep tty'
+	# reports another. I give up, this should work... best bet is just
+	# to get networking working.
+	# For details on tty issues:
+	# see: https://lists.gnu.org/archive/html/qemu-devel/2013-06/msg01507.html
+	console=ttyS0,115200n
+	console=tty0
+	vga=normal
+	dyndbg=\"file firmware_class.c +p\; file arch/x86/kernel/init.c +p\"
+	rw
+	drbd.minor_count=8
+	max_part=63
+	#cgroup_no_v1=all
+	#cgroup_disable=all
+	#ipv6.disable_ipv6_mod=1
+)
+
+# No need to edit anything else below
+
+function usage()
+{
+	echo -e "Usage $0 [ -d | -b | -l | -k /boot/some-kernel-vmlinuz ]"
+	echo -e ""
+	echo -e "-d -- Use debug qemu version"
+	echo -e "-b -- Use boot from hard disk's own kernel, grub is installed"
+	echo -e "-t -- Use the specified file as the disk image target"
+	echo -e "-n -- Use the specified file as the linux-next disk image target"
+	echo -e "-k -- Use this passed kernel file on /boot/, we'll infer initramfs"
+	echo -e "-l -- Use the latest kernel and initramfs in /boot/"
+	echo -e "-m -- Use this value for memory, default is 1024"
+	echo -e "-c -- Use this value for CPUs, default is 4"
+	echo -e ""
+	echo -e "For example valid uses:"
+	echo -e "\t$0 -k /boot/initrd-4.9.0-rc5-next-20161117-1-default+"
+	echo -e "\t$0 -l"
+	echo -e ""
+}
+
+function setup_qemu_kernel()
+{
+
+	USE_KERNEL="-kernel $KERNEL"
+	USE_INITRD="-initrd $INITRAMFS"
+	explain_using
+}
+
+function explain_using()
+{
+	echo -e "Using:"
+	echo -e "Kernel:\t\t$KERNEL"
+	echo -e "Initramfs:\t$INITRAMFS"
+}
+
+function infer_latest_kernel()
+{
+	LATEST_KERNEL=$(ls -atr /boot/vmlinuz*| tail -1)
+	LATEST_INITRAMFS=$(ls -atr /boot/initrd*| tail -1)
+
+	if [[ -f $LATEST_KERNEL && -f $LATEST_INITRAMFS ]]; then
+		KERNEL=$LATEST_KERNEL
+		INITRAMFS=$LATEST_INITRAMFS
+	else
+		echo -e "No detected latest kernel and initramfs..."
+		echo -e "$LATEST_KERNEL"
+		exit 1
+	fi
+	setup_qemu_kernel
+}
+
+function parse_passed_kernel()
+{
+	PASSED_KERNEL=$1
+	if [[ -f $PASSED_KERNEL ]]; then
+		echo -e "Trying kernel:\t$PASSED_KERNEL"
+		KERNEL=$PASSED_KERNEL
+		INFER_INITRAMFS="/boot/initrd-${KERNEL#/boot/vmlinuz-*}"
+		if [[ ! -f $INFER_INITRAMFS ]]; then
+			echo "No initramfs detected -- fix $0 to handle "
+			echo "your distribution or case"
+			echo -e "We guessed you might have:\n$INFER_INITRAMFS"
+			exit 1
+		else
+			INITRAMFS=$INFER_INITRAMFS
+		fi
+	else
+		exit 1
+	fi
+	setup_qemu_kernel
+}
+
+function parse_args()
+{
+	case $1 in
+		"--help")
+			usage
+			exit 1
+			;;
+		"-h")
+			usage
+			exit 1
+			;;
+		"-m")
+			shift
+			MEM=$1
+			parse_args $@
+			;;
+		"-c")
+			shift
+			CPUS=$1
+			parse_args $@
+			;;
+		"-d")
+			QEMU="$HOME/devel/qemu/x86_64-softmmu/qemu-system-x86_64"
+			parse_args $@
+			;;
+		"-k")
+			shift
+			parse_passed_kernel $1
+			;;
+		"-l")
+			infer_latest_kernel
+			shift
+			;;
+		"-b")
+			;;
+		"-t")
+			shift
+			TARGET=$1
+			USE_TARGET="-hda $TARGET"
+			parse_args $@
+			;;
+		"-n")
+			shift
+			NEXT_TARGET=$1
+			if [[ "$NEXT_TARGET" == "none" ]]; then
+				USE_NEXT_TARGET=""
+			else
+				USE_NEXT_TARGET="-hdb $NEXT_TARGET"
+			fi
+			parse_args $@
+			;;
+		*)
+			;;
+	esac
+}
+
+if [[ $# -eq 0 ]]; then
+	infer_latest_kernel
+else
+	parse_args $@
+fi
+
+kvm=(
+	$QEMU
+	-cpu kvm64
+	-enable-kvm
+	$USE_KERNEL
+	-m $MEM
+	-smp $CPUS
+	-netdev vde,sock=$VDE_SOCKET,group=kvm,mode=0660,id=vde0
+	-device e1000,netdev=vde0,mac=52:54:00:12:34:84
+	$USE_TARGET
+	$USE_NEXT_TARGET
+	-monitor pty
+	-serial stdio
+	-chardev pty,id=ttyS1
+	-device isa-serial,chardev=ttyS1
+	-chardev pty,id=ttyS2
+	-device isa-serial,chardev=ttyS2
+	-nographic
+	$USE_INITRD
+	-boot order=d
+)
+
+if [[ "$USE_KERNEL" == "" ]]; then
+	echo $USE_KERNEL
+	echo "Going to boot directly onto image disk"
+	echo "---------------------------------------"
+	"${kvm[@]}"
+else
+	echo "Going to boot custom kernel"
+	echo "---------------------------"
+	"${kvm[@]}" --append "${append[*]}"
+fi

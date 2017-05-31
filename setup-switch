@@ -1,0 +1,130 @@
+#!/bin/sh
+# Copyright (C) 2017 Luis R. Rodriguez <mcgrof@kernel.org>
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of copyleft-next (version 0.3.1 or later) as published
+# at http://copyleft-next.org/.
+
+TAP_DEV=tap0
+WIRELESS_DEV=wlp3s0
+
+# Network information, these are sane values, you can keep them
+# unless they intefere with your network, ie, if you already make use
+# of this subnet. If you don't use this subnet it should be fine.
+NETWORK=192.168.53.0
+NETMASK=255.255.255.0
+GATEWAY=192.168.53.1
+DHCPRANGE=192.168.53.2,192.168.53.254
+
+#DNSMASQ_RUN_DIR=/tmp/
+DNSMASQ_RUN_DIR=/var/lib/dnsmasq/
+
+DNSMASQ_PID=$DNSMASQ_RUN_DIR/qemu-dnsmasq-$TAP_DEV.pid
+DNSMASQ_LEASE=$DNSMASQ_RUN_DIR/qemu-dnsmasq-$TAP_DEV.leases
+
+# Optionally parameters to enable PXE support
+TFTPROOT=
+BOOTP=
+
+######################################
+# No need to edit anything below here
+######################################
+
+do_ifconfig() {
+    ifconfig "$@"
+}
+
+do_iptables_restore() {
+    iptables-restore "$@"
+}
+
+check_dnsmasq()
+{
+    if ! ps -ef| grep -v grep | grep dnsmasq >/dev/null 2> /dev/null; then
+	return 0
+    else
+	return 1
+    fi
+}
+
+do_dnsmasq() {
+    if check_dnsmasq; then
+	echo going to start DNS!
+	dnsmasq "$@"
+    fi
+}
+
+enable_ip_forward() {
+	sysctl -w net.ipv4.ip_forward=1
+}
+
+flush_tables()
+{
+	for i in INPUT FORWARD OUTPUT; do
+		iptables -F $i
+	done
+	iptables -t nat -D POSTROUTING 1
+}
+
+add_filter_rules()
+{
+	flush_tables
+	iptables -t nat -A POSTROUTING -s $NETWORK/24 -o $WIRELESS_DEV -j MASQUERADE
+}
+
+start_dnsmasq() {
+    do_dnsmasq \
+	--strict-order \
+	--log-queries \
+	--except-interface=lo \
+	--interface=$1 \
+	--listen-address=$GATEWAY \
+	--bind-interfaces \
+	--dhcp-range=$DHCPRANGE \
+	--conf-file="" \
+	--dhcp-no-override \
+	${TFTPROOT:+"--enable-tftp"} \
+	${TFTPROOT:+"--tftp-root=$TFTPROOT"} \
+	${BOOTP:+"--dhcp-boot=$BOOTP"}
+	#--dhcp-leasefile=$DNSMASQ_LEASE \
+	#--pid-file=$DNSMASQ_PID \
+}
+
+check_vdeswitch()
+{
+	if ps -ef | grep -v grep | grep vde_switch >/dev/null 2> /dev/null; then
+		return 1
+	else
+		return 0
+	fi
+}
+
+do_vdeswitch() {
+	if check_vdeswitch; then
+		vde_switch "$@"
+	fi
+}
+
+start_vdeswitch() {
+    do_vdeswitch \
+	-hub \
+	-tap $TAP_DEV \
+	-mod 660 \
+	-group kvm \
+	-s /var/run/qemu-vde.ctl \
+	--pidfile /var/run/qemu-vde.pid \
+	-daemon
+}
+
+setup_nat() {
+	enable_ip_forward
+	add_filter_rules "$1"
+}
+
+echo Seting up switch on $TAP_DEV
+
+start_vdeswitch
+do_ifconfig $TAP_DEV "$GATEWAY" netmask "$NETMASK" up
+
+setup_nat $TAP_DEV
+start_dnsmasq $TAP_DEV
