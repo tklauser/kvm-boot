@@ -326,15 +326,15 @@ You will also need to setup the getty to spawn. This will vary depending
 on what init system you are using. If you are using old init you will
 need to add the entries on /etc/inittab:
 
-T0:23:respawn:/sbin/getty -L ttyS0 115200 vt100
-T1:23:respawn:/sbin/getty -L ttyS1 115200 vt100
-T1:23:respawn:/sbin/getty -L ttyS2 115200 vt100
+	T0:23:respawn:/sbin/getty -L ttyS0 115200 vt100
+	T1:23:respawn:/sbin/getty -L ttyS1 115200 vt100
+	T1:23:respawn:/sbin/getty -L ttyS2 115200 vt100
 
 On systemd this is done as follows:
 
-systemctl enable console-getty.service getty@ttyS0.service
-systemctl enable console-getty.service getty@ttyS1.service
-systemctl enable console-getty.service getty@ttyS2.service
+	systemctl enable console-getty.service getty@ttyS0.service
+	systemctl enable console-getty.service getty@ttyS1.service
+	systemctl enable console-getty.service getty@ttyS2.service
 
 Edit the guest /etc/default/grub and ensure you have these entries:
 
