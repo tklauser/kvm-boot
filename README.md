@@ -27,6 +27,9 @@ When you decide you need to spawn guests just run this prior to spawning guests:
 
 	$ sudo ~/bin/setup-switch
 
+You may need to edit the file to replace WIRELESS_DEV variable for whatever
+your actual networking interface is.
+
 You should see:
 
 	Seting up switch on tap0
