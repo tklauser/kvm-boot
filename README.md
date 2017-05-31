@@ -308,10 +308,11 @@ you will want to set up to be a happy camper Linux developer using kvm-boot,
 you can set these up using the same guest-install script as described above
 and booting from the hard disk.
 
-You will want to setup:
+You will want to do the following:
 
   * console access - useful for early crashes or in case networking dies
   * grub tty setup - lets you select your kernels on the boot prompt
+  * write down the guest IP address - these should be static after first DHCP
 
 ### Setting up console and grub
 
@@ -370,6 +371,13 @@ control interface using screen as well:
 	$ screen /dev/pts/9
 	$ screen /dev/pts/11
 	$ screen /dev/pts/12
+
+## Sshing into your guest image
+
+Make sure to write down the IP address of the guest before using kvm-boot, you
+should then be able to ssh into it. There is a slew of issues which can occur
+when using console (see the WTF note on kvm-boot), for this reason the author
+has relied mostly on ssh for access to the system.
 
 ## Keeping your /boot small
 
