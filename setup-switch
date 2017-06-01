@@ -121,7 +121,7 @@ setup_nat() {
 	add_filter_rules "$1"
 }
 
-echo Seting up switch on $TAP_DEV
+echo Setting up switch on $TAP_DEV
 
 start_vdeswitch
 do_ifconfig $TAP_DEV "$GATEWAY" netmask "$NETMASK" up

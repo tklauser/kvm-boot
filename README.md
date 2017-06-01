@@ -32,7 +32,7 @@ your actual networking interface is.
 
 You should see:
 
-	Seting up switch on tap0
+	Setting up switch on tap0
 	net.ipv4.ip_forward = 1
 
 That should get your system setup for networking. It will allow your guests to
